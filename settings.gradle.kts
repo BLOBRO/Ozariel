@@ -10,6 +10,14 @@ pluginManagement {
         mavenCentral()
         gradlePluginPortal()
     }
+    // Versions des plugins, appliqués dans chaque module. Le plugin Android et le plugin Kotlin
+    // doivent être chargés ensemble dans le module app.
+    plugins {
+        id("com.android.application") version "8.10.1"
+        kotlin("jvm") version "2.1.21"
+        kotlin("android") version "2.1.21"
+        kotlin("plugin.compose") version "2.1.21"
+    }
 }
 
 dependencyResolutionManagement {
