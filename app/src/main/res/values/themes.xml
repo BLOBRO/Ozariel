@@ -1,0 +1,3 @@
+<resources>
+    <style name="Theme.Ozariel" parent="android:Theme.Material.NoActionBar" />
+</resources>

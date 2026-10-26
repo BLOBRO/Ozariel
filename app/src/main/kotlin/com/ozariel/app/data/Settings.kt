@@ -1,0 +1,54 @@
+package com.ozariel.app.data
+
+import android.content.Context
+import android.content.SharedPreferences
+import androidx.core.content.edit
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
+import com.ozariel.core.agent.AgentModel
+
+/** Réglages de l'app, chiffrés sur le téléphone (la clé API notamment). */
+class Settings(context: Context) {
+    private val prefs: SharedPreferences = EncryptedSharedPreferences.create(
+        context,
+        "ozariel_settings",
+        MasterKey.Builder(context).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build(),
+        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+    )
+
+    var apiKey: String
+        get() = prefs.getString("api_key", "").orEmpty()
+        set(value) = prefs.edit { putString("api_key", value.trim()) }
+
+    var model: AgentModel
+        get() = AgentModel.fromId(prefs.getString("model", null))
+        set(value) = prefs.edit { putString("model", value.id) }
+
+    var ownerName: String
+        get() = prefs.getString("owner_name", "Ariel").orEmpty()
+        set(value) = prefs.edit { putString("owner_name", value.trim()) }
+
+    /** Propose une réponse dans ton style dès qu'un message arrive. */
+    var suggestReplies: Boolean
+        get() = prefs.getBoolean("suggest_replies", true)
+        set(value) = prefs.edit { putBoolean("suggest_replies", value) }
+
+    /** Interrupteur général des réponses automatiques. */
+    var autoReply: Boolean
+        get() = prefs.getBoolean("auto_reply", false)
+        set(value) = prefs.edit { putBoolean("auto_reply", value) }
+
+    /** Contacts pour lesquels l'agent répond sans demander. */
+    var autoReplyContacts: Set<String>
+        get() = prefs.getStringSet("auto_reply_contacts", emptySet()).orEmpty()
+        set(value) = prefs.edit { putStringSet("auto_reply_contacts", value) }
+
+    /** Autorise les tâches programmées à envoyer des messages sans confirmation. */
+    var allowSensitiveInTasks: Boolean
+        get() = prefs.getBoolean("sensitive_in_tasks", false)
+        set(value) = prefs.edit { putBoolean("sensitive_in_tasks", value) }
+
+    fun isAutoReplyContact(contact: String): Boolean =
+        autoReply && autoReplyContacts.any { it.equals(contact, ignoreCase = true) }
+}
