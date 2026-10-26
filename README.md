@@ -7,13 +7,15 @@ Un agent IA personnel pour Android. Tu lui parles, il agit sur ton téléphone :
 - **programmer des tâches** (« tous les matins à 7h, mets ma playlist Réveil ») ;
 - lire tes messages (WhatsApp, SMS, Telegram, Messenger…) et **y répondre dans ton style**, appris à partir de tes vraies conversations.
 
-Le cerveau est [Claude](https://www.anthropic.com/claude), appelé avec ta propre clé API.
+Le cerveau est au choix :
+- **Gemini** de Google, gratuit avec des limites (requêtes par minute et par jour). Sur l'offre gratuite, Google peut utiliser les données envoyées pour améliorer ses modèles ;
+- **Claude** d'Anthropic, payant à l'usage, plus fiable pour piloter les applications.
 
 ## Installer l'app
 
 1. Sur GitHub, ouvre l'onglet **Actions**, clique sur la dernière construction réussie « Construire l'APK », puis télécharge **ozariel-apk** (en bas de la page).
 2. Décompresse le fichier et ouvre `app-debug.apk` sur ton téléphone. Android te demandera d'autoriser l'installation depuis cette source.
-3. Ouvre Ozariel, va dans **Réglages** et colle ta clé API Claude (à créer sur [console.anthropic.com](https://console.anthropic.com)).
+3. Ouvre Ozariel, va dans **Réglages** et colle une clé API : Gemini, gratuite, à créer sur [aistudio.google.com/apikey](https://aistudio.google.com/apikey), ou Claude, payante, sur [console.anthropic.com](https://console.anthropic.com). Choisis ensuite le modèle correspondant.
 4. Toujours dans **Réglages**, active :
    - **Pilote d'applications** : Réglages Android > Accessibilité > Ozariel ;
    - **Messages et musique** (accès aux notifications) ;
@@ -40,7 +42,7 @@ Ensuite, à chaque message reçu, Ozariel te propose une réponse (bouton **Envo
 ## Sécurité et vie privée
 
 - Ta clé API et tes réglages sont chiffrés sur le téléphone.
-- Ta mémoire de style (tes réponses passées) reste sur le téléphone. Seuls les extraits utiles à une réponse sont envoyés à Claude.
+- Ta mémoire de style (tes réponses passées) reste sur le téléphone. Seuls les extraits utiles à une réponse sont envoyés au modèle choisi (Claude ou Gemini).
 - Envoyer un message demande toujours ta confirmation, sauf pour les contacts en réponse automatique, ou si tu l'autorises explicitement pour les tâches programmées.
 - L'agent refuse les paiements, achats, suppressions de données et changements de mot de passe.
 

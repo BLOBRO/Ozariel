@@ -79,6 +79,7 @@ import com.ozariel.app.OzarielApp
 import com.ozariel.app.services.AgentAccessibilityService
 import com.ozariel.app.services.MessageListenerService
 import com.ozariel.core.agent.AgentModel
+import com.ozariel.core.agent.Provider
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -108,7 +109,7 @@ private enum class Tab(val label: String) { AGENT("Agent"), MESSAGES("Messages")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun OzarielScreen(viewModel: AgentViewModel) {
-    var tab by remember { mutableStateOf(if (OzarielApp.instance.settings.apiKey.isBlank()) Tab.SETTINGS else Tab.AGENT) }
+    var tab by remember { mutableStateOf(if (OzarielApp.instance.settings.hasKeyForModel) Tab.AGENT else Tab.SETTINGS) }
     val confirmation by viewModel.confirmation.collectAsState()
 
     Scaffold(
@@ -348,6 +349,7 @@ private fun SettingsTab(viewModel: AgentViewModel) {
     val settings = OzarielApp.instance.settings
     val context = LocalContext.current
     var apiKey by remember { mutableStateOf(settings.apiKey) }
+    var geminiKey by remember { mutableStateOf(settings.geminiKey) }
     var name by remember { mutableStateOf(settings.ownerName) }
     var model by remember { mutableStateOf(settings.model) }
     var modelMenu by remember { mutableStateOf(false) }
@@ -360,11 +362,33 @@ private fun SettingsTab(viewModel: AgentViewModel) {
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Claude", style = MaterialTheme.typography.titleMedium)
+        Text("Cerveau de l'agent", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Gemini est gratuit (avec des limites par minute et par jour, et Google peut utiliser les données envoyées). " +
+                "Claude est payant mais plus fiable.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        OutlinedTextField(
+            value = geminiKey,
+            onValueChange = {
+                geminiKey = it
+                settings.geminiKey = it
+                // Première clé saisie : on passe directement sur Gemini.
+                if (it.isNotBlank() && settings.apiKey.isBlank() && model.provider == Provider.CLAUDE) {
+                    model = AgentModel.GEMINI_FLASH
+                    settings.model = model
+                }
+                viewModel.settingsChanged()
+            },
+            label = { Text("Clé API Gemini, gratuite (aistudio.google.com/apikey)") },
+            visualTransformation = PasswordVisualTransformation(),
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
         OutlinedTextField(
             value = apiKey,
             onValueChange = { apiKey = it; settings.apiKey = it; viewModel.settingsChanged() },
-            label = { Text("Clé API (console.anthropic.com)") },
+            label = { Text("Clé API Claude, payante (console.anthropic.com)") },
             visualTransformation = PasswordVisualTransformation(),
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),

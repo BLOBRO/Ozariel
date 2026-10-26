@@ -6,6 +6,7 @@ import androidx.core.content.edit
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.ozariel.core.agent.AgentModel
+import com.ozariel.core.agent.Provider
 
 /** Réglages de l'app, chiffrés sur le téléphone (la clé API notamment). */
 class Settings(context: Context) {
@@ -20,6 +21,15 @@ class Settings(context: Context) {
     var apiKey: String
         get() = prefs.getString("api_key", "").orEmpty()
         set(value) = prefs.edit { putString("api_key", value.trim()) }
+
+    /** Clé gratuite créée sur aistudio.google.com/apikey. */
+    var geminiKey: String
+        get() = prefs.getString("gemini_key", "").orEmpty()
+        set(value) = prefs.edit { putString("gemini_key", value.trim()) }
+
+    /** Vrai si la clé du fournisseur du modèle choisi est renseignée. */
+    val hasKeyForModel: Boolean
+        get() = (if (model.provider == Provider.GEMINI) geminiKey else apiKey).isNotBlank()
 
     var model: AgentModel
         get() = AgentModel.fromId(prefs.getString("model", null))

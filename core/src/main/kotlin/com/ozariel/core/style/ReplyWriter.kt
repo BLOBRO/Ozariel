@@ -1,12 +1,6 @@
 package com.ozariel.core.style
 
-import com.anthropic.client.AnthropicClient
-import com.anthropic.models.messages.MessageCreateParams
-import com.anthropic.models.messages.OutputConfig
-import com.ozariel.core.agent.AgentModel
-import com.ozariel.core.agent.texts
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import com.ozariel.core.llm.TextModel
 
 /** Un message d'une conversation en cours, tel que vu dans les notifications. */
 data class ConversationLine(val author: String, val text: String)
@@ -23,9 +17,8 @@ sealed interface Draft {
  * et de ses vraies réponses passées les plus proches.
  */
 class ReplyWriter(
-    private val client: AnthropicClient,
+    private val model: TextModel,
     private val memory: StyleMemory,
-    private val model: AgentModel = AgentModel.OPUS,
 ) {
     /** Analyse un échantillon de vraies réponses et en tire une description du style d'écriture. */
     suspend fun buildProfile(): String {
@@ -43,7 +36,7 @@ class ReplyWriter(
 
             $examples
         """.trimIndent()
-        val profile = complete(prompt, OutputConfig.Effort.HIGH)
+        val profile = model.complete(prompt, thorough = true)
         memory.setProfile(profile)
         return profile
     }
@@ -76,7 +69,7 @@ class ReplyWriter(
             - Sinon, réponds uniquement avec le texte du message, sans guillemets ni commentaire.
         """.trimIndent()
 
-        val answer = complete(prompt, OutputConfig.Effort.LOW).trim()
+        val answer = model.complete(prompt).trim()
         return if (answer.isBlank()) {
             Draft.NeedsOwner("aucune réponse générée")
         } else if (answer.startsWith("PASSER")) {
@@ -84,16 +77,5 @@ class ReplyWriter(
         } else {
             Draft.Reply(answer.removeSurrounding("\""))
         }
-    }
-
-    private suspend fun complete(prompt: String, effort: OutputConfig.Effort): String {
-        val params = MessageCreateParams.builder()
-            .model(model.id)
-            .maxTokens(16000L)
-            .outputConfig(OutputConfig.builder().effort(effort).build())
-            .addUserMessage(prompt)
-            .build()
-        val response = withContext(Dispatchers.IO) { client.messages().create(params) }
-        return response.texts().joinToString("\n")
     }
 }

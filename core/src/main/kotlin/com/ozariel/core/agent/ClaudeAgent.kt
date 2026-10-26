@@ -12,49 +12,28 @@ import com.anthropic.models.messages.Tool
 import com.anthropic.models.messages.ToolResultBlockParam
 import com.anthropic.models.messages.ToolUseBlock
 import com.ozariel.core.tools.DeviceTool
-import com.ozariel.core.tools.ToolArgs
-import com.ozariel.core.tools.ToolResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.time.ZonedDateTime
-import java.time.format.DateTimeFormatter
-import java.util.Locale
-
-/** Ce que l'agent montre à l'utilisateur pendant qu'il travaille. */
-sealed interface AgentEvent {
-    data class Said(val text: String) : AgentEvent
-    data class ToolStarted(val tool: String, val args: String) : AgentEvent
-    data class ToolFinished(val tool: String, val result: ToolResult) : AgentEvent
-    data class Failed(val message: String) : AgentEvent
-}
-
-/** Demande à l'utilisateur s'il accepte une action sensible. Renvoie true pour continuer. */
-fun interface ConfirmationGate {
-    suspend fun confirm(tool: DeviceTool, args: ToolArgs): Boolean
-}
 
 /**
- * Le cerveau : envoie la demande à Claude avec la liste des actions possibles,
- * exécute les actions choisies sur le téléphone et renvoie les résultats, jusqu'à ce que la tâche soit finie.
- *
- * L'historique n'est jamais modifié, seulement complété : c'est ce que demandent les modèles récents
- * (et ça permet la mise en cache du début de la conversation).
+ * L'agent avec Claude. L'historique n'est jamais modifié, seulement complété : c'est ce que demandent
+ * les modèles récents (et ça permet la mise en cache du début de la conversation).
  */
-class Agent(
+class ClaudeAgent(
     private val client: AnthropicClient,
     private val config: AgentConfig,
-    private val tools: List<DeviceTool>,
+    tools: List<DeviceTool>,
     private val gate: ConfirmationGate,
     private val extraInstructions: String = "",
-) {
+) : Assistant {
     private val history = mutableListOf<MessageParam>()
     private val toolsByName = tools.associateBy { it.name }
     private val sdkTools: List<Tool> = tools.map { it.toSdkTool() }
 
-    fun reset() = history.clear()
+    override fun reset() = history.clear()
 
-    suspend fun send(userText: String, onEvent: (AgentEvent) -> Unit = {}): String {
-        history += MessageParam.ofUser("[${now()}]\n$userText")
+    override suspend fun send(userText: String, onEvent: (AgentEvent) -> Unit): String {
+        history += MessageParam.ofUser(userTurn(userText))
 
         val said = StringBuilder()
         repeat(config.maxSteps) {
@@ -105,7 +84,7 @@ class Agent(
 
     private suspend fun runTools(response: Message, onEvent: (AgentEvent) -> Unit): MessageParam {
         val results = response.content().mapNotNull { it.toolUse().orElse(null) }.map { use ->
-            val result = runTool(use, onEvent)
+            val result = executeTool(toolsByName, gate, use.name(), use.argsMap(), onEvent)
             ContentBlockParam.ofToolResult(
                 ToolResultBlockParam.builder()
                     .toolUseId(use.id())
@@ -116,26 +95,6 @@ class Agent(
         }
         return MessageParam.ofUserOfContentBlockParams(results)
     }
-
-    private suspend fun runTool(use: ToolUseBlock, onEvent: (AgentEvent) -> Unit): ToolResult {
-        val tool = toolsByName[use.name()] ?: return ToolResult.error("Action inconnue : ${use.name()}")
-        val args = ToolArgs(use.argsMap())
-        onEvent(AgentEvent.ToolStarted(tool.name, args.toString()))
-        val result = try {
-            if (tool.sensitive && !gate.confirm(tool, args)) {
-                ToolResult.error("L'utilisateur a refusé cette action.")
-            } else {
-                tool.run(args)
-            }
-        } catch (e: Exception) {
-            ToolResult.error("Erreur : ${e.message}")
-        }
-        onEvent(AgentEvent.ToolFinished(tool.name, result))
-        return result
-    }
-
-    private fun now(): String = ZonedDateTime.now()
-        .format(DateTimeFormatter.ofPattern("EEEE d MMMM yyyy, HH:mm", Locale.FRENCH))
 }
 
 internal fun Message.texts(): List<String> =

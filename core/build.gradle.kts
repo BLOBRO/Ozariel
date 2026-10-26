@@ -17,6 +17,7 @@ dependencies {
     api("com.anthropic:anthropic-java:3.3.0")
     api("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.19.4")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     testImplementation(kotlin("test"))
 }

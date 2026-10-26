@@ -8,7 +8,10 @@ import androidx.lifecycle.viewModelScope
 import com.ozariel.app.OzarielApp
 import com.ozariel.app.services.MessageListenerService
 import com.ozariel.app.tools.AndroidTools
-import com.ozariel.core.agent.Agent
+import com.ozariel.core.agent.Assistant
+import com.ozariel.core.agent.ClaudeAgent
+import com.ozariel.core.agent.GeminiAgent
+import com.ozariel.core.agent.Provider
 import com.ozariel.core.agent.AgentConfig
 import com.ozariel.core.agent.AgentEvent
 import com.ozariel.core.agent.ConfirmationGate
@@ -32,17 +35,16 @@ object AgentFactory {
      * En arrière-plan (tâches programmées), personne ne peut confirmer : les actions sensibles
      * sont refusées sauf si l'utilisateur l'a autorisé dans les réglages.
      */
-    fun create(context: Context, background: Boolean, gate: ConfirmationGate? = null): Agent? {
+    fun create(context: Context, background: Boolean, gate: ConfirmationGate? = null): Assistant? {
         val app = OzarielApp.instance
-        val client = app.claude() ?: return null
         val settings = app.settings
         val effectiveGate = gate ?: ConfirmationGate { _, _ -> background && settings.allowSensitiveInTasks }
-        return Agent(
-            client = client,
-            config = AgentConfig(model = settings.model, ownerName = settings.ownerName),
-            tools = AndroidTools.all(context.applicationContext),
-            gate = effectiveGate,
-        )
+        val config = AgentConfig(model = settings.model, ownerName = settings.ownerName)
+        val tools = AndroidTools.all(context.applicationContext)
+        return when (settings.model.provider) {
+            Provider.CLAUDE -> app.claude()?.let { ClaudeAgent(it, config, tools, effectiveGate) }
+            Provider.GEMINI -> app.gemini()?.let { GeminiAgent(it, config, tools, effectiveGate) }
+        }
     }
 }
 
@@ -69,7 +71,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
     private val _styleStatus = MutableStateFlow("")
     val styleStatus: StateFlow<String> = _styleStatus
 
-    private var agent: Agent? = null
+    private var agent: Assistant? = null
 
     private val gate = ConfirmationGate { tool, args ->
         val pending = PendingConfirmation(tool, args, CompletableDeferred())
@@ -82,7 +84,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
         _chat.update { it + ChatEntry.User(text) }
         val current = agent ?: AgentFactory.create(app, background = false, gate = gate)?.also { agent = it }
         if (current == null) {
-            _chat.update { it + ChatEntry.Action("Ajoute ta clé API Claude dans l'onglet Réglages.", failed = true) }
+            _chat.update { it + ChatEntry.Action("Ajoute la clé API du modèle choisi dans l'onglet Réglages.", failed = true) }
             return
         }
         _busy.value = true

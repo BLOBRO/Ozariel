@@ -8,6 +8,11 @@ import com.ozariel.app.data.MessageStore
 import com.ozariel.app.data.Settings
 import com.ozariel.app.data.TaskStore
 import com.ozariel.core.agent.ClaudeClients
+import com.ozariel.core.agent.Provider
+import com.ozariel.core.llm.ClaudeText
+import com.ozariel.core.llm.GeminiClient
+import com.ozariel.core.llm.GeminiText
+import com.ozariel.core.llm.TextModel
 import com.ozariel.core.style.ReplyWriter
 import com.ozariel.core.style.StyleMemory
 import java.io.File
@@ -24,6 +29,8 @@ class OzarielApp : Application() {
 
     private var cachedKey: String? = null
     private var cachedClient: AnthropicClient? = null
+    private var cachedGeminiKey: String? = null
+    private var cachedGemini: GeminiClient? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -47,7 +54,26 @@ class OzarielApp : Application() {
         return cachedClient
     }
 
-    fun replyWriter(): ReplyWriter? = claude()?.let { ReplyWriter(it, styleMemory, settings.model) }
+    @Synchronized
+    fun gemini(): GeminiClient? {
+        val key = settings.geminiKey.takeIf { it.isNotBlank() } ?: return null
+        if (key != cachedGeminiKey) {
+            cachedGemini = GeminiClient(key)
+            cachedGeminiKey = key
+        }
+        return cachedGemini
+    }
+
+    /** Le modèle de texte du fournisseur choisi dans les réglages, ou null si sa clé manque. */
+    fun textModel(): TextModel? {
+        val model = settings.model
+        return when (model.provider) {
+            Provider.CLAUDE -> claude()?.let { ClaudeText(it, model) }
+            Provider.GEMINI -> gemini()?.let { GeminiText(it, model) }
+        }
+    }
+
+    fun replyWriter(): ReplyWriter? = textModel()?.let { ReplyWriter(it, styleMemory) }
 
     private fun createChannels() {
         val manager = getSystemService(NotificationManager::class.java)
