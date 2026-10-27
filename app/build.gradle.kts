@@ -78,8 +78,8 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:2.10.1")
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
-    // Mot d'éveil « Ozariel », détecté sur le téléphone (Picovoice, gratuit pour un usage perso).
-    implementation("ai.picovoice:porcupine-android:4.0.2")
+    // Mot d'éveil « Ozariel » : empreintes vocales calculées sur le téléphone (modèles openWakeWord).
+    implementation("org.tensorflow:tensorflow-lite:2.16.1")
 
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
 }

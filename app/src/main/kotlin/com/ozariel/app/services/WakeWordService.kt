@@ -1,7 +1,5 @@
 package com.ozariel.app.services
 
-import ai.picovoice.porcupine.PorcupineException
-import ai.picovoice.porcupine.PorcupineManager
 import android.Manifest
 import android.app.Notification
 import android.app.PendingIntent
@@ -28,13 +26,16 @@ import androidx.core.content.ContextCompat
 import com.ozariel.app.OzarielApp
 import com.ozariel.app.R
 import com.ozariel.app.ui.MainActivity
+import com.ozariel.app.wake.VoiceEnrollment
+import com.ozariel.app.wake.VoiceFeatures
+import com.ozariel.core.wake.VoiceModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import java.io.File
+import kotlin.concurrent.thread
 
 /**
- * Écoute en permanence le mot « Ozariel », directement sur le téléphone (Picovoice Porcupine) :
- * rien ne quitte le téléphone tant que le mot n'est pas détecté. À la détection, le personnage
+ * Écoute en permanence le mot « Ozariel », directement sur le téléphone : la voix est comparée au modèle
+ * appris lors de l'enregistrement (voir [VoiceEnrollment]) et rien ne quitte le téléphone. À la détection, le personnage
  * se réveille et la bulle écoute la demande ; l'écoute du mot reprend ensuite.
  * Android impose une notification permanente tant que le micro est utilisé.
  */
@@ -43,8 +44,10 @@ class WakeWordService : Service() {
     private val handler = Handler(Looper.getMainLooper())
     private val audio by lazy { getSystemService(AudioManager::class.java) }
 
-    private var manager: PorcupineManager? = null
-    private var running = false
+    @Volatile private var running = false
+    private var listener: Thread? = null
+    private var features: VoiceFeatures? = null
+    private var lastWake = 0L
 
     /** La bulle utilise le micro pour écouter la demande. */
     private var held = false
@@ -99,8 +102,8 @@ class WakeWordService : Service() {
 
     override fun onDestroy() {
         stopListening()
-        runCatching { manager?.delete() }
-        manager = null
+        features?.close()
+        features = null
         runCatching { unregisterReceiver(screenReceiver) }
         audio.unregisterAudioRecordingCallback(recordingCallback)
         if (instance === this) instance = null
@@ -125,38 +128,81 @@ class WakeWordService : Service() {
 
     private fun startListening() {
         if (running) return
-        val engine = manager ?: try {
-            PorcupineManager.Builder()
-                .setAccessKey(settings.picovoiceKey)
-                .setKeywordPaths(arrayOf(keywordFile(this).absolutePath))
-                .setModelPath(MODEL_ASSET)
-                .setSensitivities(floatArrayOf(SENSITIVITY))
-                .setErrorCallback { e -> handler.post { fail(e) } }
-                .build(applicationContext) { handler.post { onWakeWord() } }
-                .also { manager = it }
-        } catch (e: PorcupineException) {
-            fail(e)
+        val model = VoiceEnrollment.load(this) ?: run {
+            showStatus("Apprends-moi d'abord ton « Ozariel » dans les Réglages.")
             return
         }
-        try {
-            engine.start()
-            running = true
-            showStatus("J'écoute « Ozariel ».")
-        } catch (e: PorcupineException) {
-            fail(e)
-        }
+        running = true
+        showStatus("J'écoute « Ozariel ».")
+        listener = thread(name = "ozariel-eveil") { listen(model) }
     }
 
     private fun stopListening() {
         if (!running) return
         running = false
-        runCatching { manager?.stop() }
+        // Attend que le micro soit libéré avant de le confier à la bulle (une lecture dure 80 ms).
+        listener?.join(500)
+        listener = null
+        _score.value = 0f
+    }
+
+    /** La boucle d'écoute : empreinte toutes les 80 ms, comparée au modèle appris. */
+    private fun listen(model: VoiceModel) {
+        val recorder = try {
+            VoiceEnrollment.openMic()
+        } catch (e: Exception) {
+            handler.post { running = false; showStatus("Le micro n'est pas disponible pour l'instant.") }
+            return
+        }
+        val features = this.features ?: VoiceFeatures(this).also { this.features = it }
+        features.reset()
+        // Empreintes des derniers blocs, calculées seulement quand il y a du son (null = pas encore calculée).
+        val window = ArrayDeque<FloatArray?>()
+        val levels = ArrayDeque<Float>()
+        val chunk = ShortArray(VoiceFeatures.CHUNK)
+        try {
+            recorder.startRecording()
+            while (running) {
+                var read = 0
+                while (read < chunk.size && running) {
+                    val n = recorder.read(chunk, read, chunk.size - read)
+                    if (n <= 0) break
+                    read += n
+                }
+                if (read < chunk.size) break
+                features.pushMel(chunk)
+                window.addLast(null)
+                levels.addLast(VoiceFeatures.rms(chunk))
+                if (window.size > VoiceModel.WINDOW) { window.removeFirst(); levels.removeFirst() }
+                if (window.size < VoiceModel.WINDOW) continue
+
+                // Dans le silence, rien de plus à calculer : c'est ce qui économise la batterie.
+                if (levels.max() <= VoiceModel.SPEECH_RMS) {
+                    _score.value = 0f
+                    continue
+                }
+                for (i in window.indices) {
+                    if (window[i] == null) window[i] = features.embeddingAt(window.size - 1 - i)
+                }
+                val score = model.score(window.map { it!! })
+                _score.value = score
+                val now = System.currentTimeMillis()
+                if (score >= model.thresholdFor(settings.wakeSensitivity) && now - lastWake > REARM_MS) {
+                    lastWake = now
+                    Log.d(TAG, "Mot d'éveil détecté (score $score)")
+                    handler.post { onWakeWord() }
+                    break
+                }
+            }
+        } finally {
+            runCatching { recorder.stop() }
+            recorder.release()
+        }
     }
 
     private fun onWakeWord() {
-        Log.d(TAG, "Mot d'éveil détecté")
         held = true
-        stopListening()
+        running = false
         vibrate()
         val floating = AgentAccessibilityService.instance?.floating
         if (floating == null || !floating.wakeUp()) {
@@ -167,26 +213,6 @@ class WakeWordService : Service() {
         } else {
             showStatus("Je t'écoute…")
         }
-    }
-
-    /** La clé, le fichier du mot ou le micro posent problème : on l'explique sans jamais afficher la clé. */
-    private fun fail(e: PorcupineException) {
-        Log.w(TAG, "Porcupine : ${e.javaClass.simpleName}")
-        stopListening()
-        runCatching { manager?.delete() }
-        manager = null
-        showStatus(
-            when (e) {
-                is ai.picovoice.porcupine.PorcupineActivationException,
-                is ai.picovoice.porcupine.PorcupineInvalidArgumentException ->
-                    "Clé Picovoice ou fichier du mot « Ozariel » invalide (le mot doit être créé en français). Vérifie-les dans les Réglages."
-                is ai.picovoice.porcupine.PorcupineActivationLimitException ->
-                    "La clé Picovoice a atteint sa limite d'appareils. Vérifie ton compte sur console.picovoice.ai."
-                is ai.picovoice.porcupine.PorcupineActivationRefusedException ->
-                    "Picovoice a refusé la clé. Vérifie-la sur console.picovoice.ai."
-                else -> "Le réveil par la voix a rencontré un problème. Réessaie depuis les Réglages."
-            }
-        )
     }
 
     private fun vibrate() {
@@ -226,8 +252,8 @@ class WakeWordService : Service() {
         private const val NOTIFICATION_ID = 4242
         private const val ACTION_PAUSE = "com.ozariel.app.WAKE_PAUSE"
         private const val ACTION_RESUME = "com.ozariel.app.WAKE_RESUME"
-        private const val MODEL_ASSET = "porcupine_params_fr.pv"
-        private const val SENSITIVITY = 0.6f
+        /** Délai avant de pouvoir se réveiller à nouveau. */
+        private const val REARM_MS = 2000L
 
         @Volatile
         private var instance: WakeWordService? = null
@@ -235,15 +261,14 @@ class WakeWordService : Service() {
         private val _status = MutableStateFlow("Réveil par la voix désactivé.")
         val status: StateFlow<String> = _status
 
-        /** Le fichier du mot « Ozariel » créé sur console.picovoice.ai et importé dans les Réglages. */
-        fun keywordFile(context: Context) = File(context.filesDir, "ozariel.ppn")
+        /** Score de ressemblance en direct, pour le mode « Tester » des Réglages. */
+        private val _score = MutableStateFlow(0f)
+        val score: StateFlow<Float> = _score
 
         /** Ce qui manque encore pour activer le réveil par la voix, ou null si tout est prêt. */
         fun missing(context: Context): String? {
-            val settings = OzarielApp.instance.settings
             return when {
-                settings.picovoiceKey.isBlank() -> "Colle ta clé d'accès Picovoice."
-                !keywordFile(context).exists() -> "Importe le fichier du mot « Ozariel » (.ppn)."
+                !VoiceEnrollment.isTrained(context) -> "Apprends-moi d'abord ton « Ozariel » (bouton ci-dessus)."
                 ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED ->
                     "Autorise le micro."
                 else -> null
@@ -261,7 +286,7 @@ class WakeWordService : Service() {
             }
         }
 
-        /** Réglages modifiés (clé, fichier du mot) : on recrée le moteur. */
+        /** Réglages modifiés (nouvel apprentissage…) : on recrée l'écoute. */
         fun restart(context: Context) {
             context.stopService(Intent(context, WakeWordService::class.java))
             sync(context)

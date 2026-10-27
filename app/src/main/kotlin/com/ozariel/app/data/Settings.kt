@@ -69,10 +69,10 @@ class Settings(context: Context) {
         get() = prefs.getBoolean("animated_character", true)
         set(value) = prefs.edit { putBoolean("animated_character", value) }
 
-    /** Clé d'accès Picovoice (console.picovoice.ai), pour le mot d'éveil. */
-    var picovoiceKey: String
-        get() = prefs.getString("picovoice_key", "").orEmpty()
-        set(value) = prefs.edit { putString("picovoice_key", value.trim()) }
+    /** Sensibilité du mot d'éveil, de 0 (strict) à 1 (très sensible). */
+    var wakeSensitivity: Float
+        get() = prefs.getFloat("wake_sensitivity", 0.5f)
+        set(value) = prefs.edit { putFloat("wake_sensitivity", value.coerceIn(0f, 1f)) }
 
     /** Ozariel se réveille quand on dit son nom. */
     var wakeWord: Boolean

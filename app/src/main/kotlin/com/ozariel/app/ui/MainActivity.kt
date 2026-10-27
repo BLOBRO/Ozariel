@@ -484,72 +484,8 @@ private fun SettingsTab(viewModel: AgentViewModel) {
     }
 }
 
-/** Réveil par la voix : dire « Ozariel » pour que la bulle écoute. */
 @Composable
-private fun WakeWordSettings(micGranted: Boolean, askMic: () -> Unit) {
-    val settings = OzarielApp.instance.settings
-    val context = LocalContext.current
-    var enabled by remember { mutableStateOf(settings.wakeWord) }
-    var key by remember { mutableStateOf(settings.picovoiceKey) }
-    var screenOnly by remember { mutableStateOf(settings.wakeOnlyScreenOn) }
-    var hasKeyword by remember { mutableStateOf(WakeWordService.keywordFile(context).exists()) }
-    var importStatus by remember { mutableStateOf("") }
-    val status by WakeWordService.status.collectAsState()
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        val copied = runCatching {
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                WakeWordService.keywordFile(context).outputStream().use { input.copyTo(it) }
-            } != null
-        }.getOrDefault(false)
-        hasKeyword = copied && WakeWordService.keywordFile(context).exists()
-        importStatus = if (hasKeyword) "Mot « Ozariel » importé." else "Import impossible, choisis le fichier .ppn téléchargé."
-        WakeWordService.restart(context)
-    }
-
-    Text("Réveil par la voix", style = MaterialTheme.typography.titleMedium)
-    Text(
-        "Dis « Ozariel » et la bulle t'écoute, sans toucher le téléphone. La détection se fait sur le téléphone, " +
-            "rien n'est envoyé tant que le mot n'est pas entendu. Android affiche une notification tant que l'écoute est active.\n" +
-            "1. Crée un compte gratuit sur console.picovoice.ai et copie ta clé d'accès (AccessKey).\n" +
-            "2. Dans Porcupine, crée le mot « Ozariel » en français, pour Android, et télécharge le fichier .ppn.\n" +
-            "3. Colle la clé et importe le fichier ci-dessous.",
-        style = MaterialTheme.typography.bodySmall,
-    )
-    OutlinedTextField(
-        value = key,
-        onValueChange = { key = it; settings.picovoiceKey = it; WakeWordService.restart(context) },
-        label = { Text("Clé d'accès Picovoice") },
-        visualTransformation = PasswordVisualTransformation(),
-        singleLine = true,
-        modifier = Modifier.fillMaxWidth(),
-    )
-    Text(
-        "Clé d'accès : console.picovoice.ai > AccessKey. Mot : Porcupine > Français > « Ozariel » > Android",
-        style = MaterialTheme.typography.labelSmall,
-    )
-    PermissionRow(if (hasKeyword) "Mot « Ozariel » importé ✓" else "Mot « Ozariel » (.ppn) à importer", null) {
-        picker.launch(arrayOf("*/*"))
-    }
-    if (importStatus.isNotEmpty()) Text(importStatus, style = MaterialTheme.typography.labelMedium)
-    if (!micGranted) PermissionRow("Micro", false, askMic)
-    SwitchRow("Réveil par la voix (« Ozariel »)", enabled) {
-        enabled = it; settings.wakeWord = it; WakeWordService.sync(context)
-    }
-    SwitchRow("Seulement quand l'écran est allumé (économise la batterie)", screenOnly) {
-        screenOnly = it; settings.wakeOnlyScreenOn = it; WakeWordService.restart(context)
-    }
-    if (enabled) {
-        Text(
-            WakeWordService.missing(context) ?: status,
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.primary,
-        )
-    }
-}
-
-@Composable
-private fun PermissionRow(label: String, enabled: Boolean?, onClick: () -> Unit) {
+internal fun PermissionRow(label: String, enabled: Boolean?, onClick: () -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(
             label + when (enabled) {
@@ -564,7 +500,7 @@ private fun PermissionRow(label: String, enabled: Boolean?, onClick: () -> Unit)
 }
 
 @Composable
-private fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+internal fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(label, Modifier.weight(1f))
         Switch(checked = checked, onCheckedChange = onChange)

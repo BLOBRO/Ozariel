@@ -1,0 +1,2 @@
+melspectrogram.tflite et embedding_model.tflite proviennent d'openWakeWord v0.5.1 (https://github.com/dscripka/openWakeWord), licence Apache 2.0. Le modèle d'embedding est dérivé du modèle speech_embedding de Google (Apache 2.0).
+Modification : la taille d'entrée par défaut de melspectrogram.tflite est fixée à [1, 1760] (au lieu de [1, 1]) pour qu'Android puisse préparer le modèle.
