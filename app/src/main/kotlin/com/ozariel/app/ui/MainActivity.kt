@@ -3,6 +3,7 @@ package com.ozariel.app.ui
 import android.Manifest
 import android.content.ComponentName
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings as AndroidSettings
@@ -75,6 +76,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import com.ozariel.app.OzarielApp
 import com.ozariel.app.services.AgentAccessibilityService
 import com.ozariel.app.services.MessageListenerService
@@ -357,6 +359,12 @@ private fun SettingsTab(viewModel: AgentViewModel) {
     var auto by remember { mutableStateOf(settings.autoReply) }
     var sensitiveInTasks by remember { mutableStateOf(settings.allowSensitiveInTasks) }
     val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    var bubble by remember { mutableStateOf(settings.floatingBubble) }
+    var speak by remember { mutableStateOf(settings.speakReplies) }
+    var micGranted by remember {
+        mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
+    }
+    val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { micGranted = it }
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
@@ -441,6 +449,21 @@ private fun SettingsTab(viewModel: AgentViewModel) {
             PermissionRow("Afficher des notifications", null) {
                 notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
+        }
+
+        Text("Bulle flottante", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Une bulle Ozariel reste par-dessus toutes les applications : appuie dessus pour parler, " +
+                "appui long pour écrire. Elle a besoin du pilote d'applications (accessibilité).",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        SwitchRow("Afficher la bulle flottante", bubble) {
+            bubble = it; settings.floatingBubble = it
+            AgentAccessibilityService.instance?.floating?.refresh()
+        }
+        SwitchRow("Lire les réponses à voix haute", speak) { speak = it; settings.speakReplies = it }
+        PermissionRow("Micro (pour parler à la bulle)", micGranted) {
+            micPermission.launch(Manifest.permission.RECORD_AUDIO)
         }
 
         Text("Réponses à tes messages", style = MaterialTheme.typography.titleMedium)

@@ -13,7 +13,6 @@ import com.ozariel.core.agent.ClaudeAgent
 import com.ozariel.core.agent.GeminiAgent
 import com.ozariel.core.agent.Provider
 import com.ozariel.core.agent.AgentConfig
-import com.ozariel.core.agent.AgentEvent
 import com.ozariel.core.agent.ConfirmationGate
 import com.ozariel.core.style.Draft
 import com.ozariel.core.style.ReplyPairExtractor
@@ -24,7 +23,6 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.zip.ZipInputStream
@@ -59,62 +57,23 @@ data class PendingConfirmation(val tool: DeviceTool, val args: ToolArgs, val ans
 class AgentViewModel(application: Application) : AndroidViewModel(application) {
     private val app = application as OzarielApp
 
-    private val _chat = MutableStateFlow<List<ChatEntry>>(emptyList())
-    val chat: StateFlow<List<ChatEntry>> = _chat
-
-    private val _busy = MutableStateFlow(false)
-    val busy: StateFlow<Boolean> = _busy
-
-    private val _confirmation = MutableStateFlow<PendingConfirmation?>(null)
-    val confirmation: StateFlow<PendingConfirmation?> = _confirmation
+    val chat: StateFlow<List<ChatEntry>> = AgentSession.chat
+    val busy: StateFlow<Boolean> = AgentSession.busy
+    val confirmation: StateFlow<PendingConfirmation?> = AgentSession.confirmation
 
     private val _styleStatus = MutableStateFlow("")
     val styleStatus: StateFlow<String> = _styleStatus
 
-    private var agent: Assistant? = null
-
-    private val gate = ConfirmationGate { tool, args ->
-        val pending = PendingConfirmation(tool, args, CompletableDeferred())
-        _confirmation.value = pending
-        pending.answer.await().also { _confirmation.value = null }
-    }
-
     fun send(text: String) {
-        if (text.isBlank() || _busy.value) return
-        _chat.update { it + ChatEntry.User(text) }
-        val current = agent ?: AgentFactory.create(app, background = false, gate = gate)?.also { agent = it }
-        if (current == null) {
-            _chat.update { it + ChatEntry.Action("Ajoute la clé API du modèle choisi dans l'onglet Réglages.", failed = true) }
-            return
-        }
-        _busy.value = true
-        viewModelScope.launch {
-            current.send(text) { event ->
-                val entry = when (event) {
-                    is AgentEvent.Said -> ChatEntry.Assistant(event.text)
-                    is AgentEvent.ToolStarted -> ChatEntry.Action("${labelFor(event.tool)}…")
-                    is AgentEvent.ToolFinished -> if (event.result.isError) ChatEntry.Action(event.result.text, failed = true) else null
-                    is AgentEvent.Failed -> ChatEntry.Action(event.message, failed = true)
-                }
-                entry?.let { e -> _chat.update { it + e } }
-            }
-            _busy.value = false
-        }
+        AgentSession.send(app, text)
     }
 
-    fun answerConfirmation(accepted: Boolean) {
-        _confirmation.value?.answer?.complete(accepted)
-    }
+    fun answerConfirmation(accepted: Boolean) = AgentSession.answerConfirmation(accepted)
 
-    fun newConversation() {
-        agent = null
-        _chat.value = emptyList()
-    }
+    fun newConversation() = AgentSession.newConversation()
 
     /** Réglages modifiés (clé, modèle…) : le prochain message recréera l'agent. */
-    fun settingsChanged() {
-        agent = null
-    }
+    fun settingsChanged() = AgentSession.settingsChanged()
 
     fun importChats(context: Context, uris: List<Uri>) {
         viewModelScope.launch {
@@ -167,29 +126,6 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun sendReply(key: String, text: String): Boolean = MessageListenerService.sendReply(app, key, text)
-
-    private fun labelFor(tool: String) = when (tool) {
-        "open_app" -> "J'ouvre l'application"
-        "read_screen" -> "Je regarde l'écran"
-        "tap_element" -> "Je touche l'écran"
-        "type_text" -> "J'écris"
-        "scroll" -> "Je fais défiler"
-        "media_control", "play_music", "set_volume", "now_playing" -> "Je m'occupe de la musique"
-        "set_alarm" -> "Je règle l'alarme"
-        "set_timer" -> "Je lance le minuteur"
-        "list_apps" -> "Je regarde tes applications"
-        "open_url" -> "J'ouvre le lien"
-        "web_search" -> "Je lance la recherche"
-        "global_action" -> "J'utilise les boutons du téléphone"
-        "wait" -> "J'attends un instant"
-        "schedule_task" -> "Je programme la tâche"
-        "list_scheduled_tasks" -> "Je regarde les tâches programmées"
-        "cancel_scheduled_task" -> "J'annule la tâche"
-        "read_messages" -> "Je lis tes messages"
-        "draft_reply" -> "Je rédige une réponse"
-        "send_reply" -> "J'envoie le message"
-        else -> "Action : $tool"
-    }
 
     private fun readTexts(context: Context, uri: Uri): List<String> {
         val resolver = context.contentResolver

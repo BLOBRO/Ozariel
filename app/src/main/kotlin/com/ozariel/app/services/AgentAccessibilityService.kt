@@ -19,11 +19,18 @@ class AgentAccessibilityService : AccessibilityService() {
     /** Éléments numérotés lors du dernier read_screen, pour que l'agent puisse les désigner. */
     private var lastElements: List<AccessibilityNodeInfo> = emptyList()
 
+    /** La bulle flottante, dessinée par ce service par-dessus les autres applications. */
+    var floating: FloatingAssistant? = null
+        private set
+
     override fun onServiceConnected() {
         instance = this
+        floating = FloatingAssistant(this).also { it.refresh() }
     }
 
     override fun onDestroy() {
+        floating?.destroy()
+        floating = null
         if (instance === this) instance = null
         super.onDestroy()
     }

@@ -59,6 +59,25 @@ class Settings(context: Context) {
         get() = prefs.getBoolean("sensitive_in_tasks", false)
         set(value) = prefs.edit { putBoolean("sensitive_in_tasks", value) }
 
+    /** Bulle flottante par-dessus les autres applications (nécessite l'accessibilité). */
+    var floatingBubble: Boolean
+        get() = prefs.getBoolean("floating_bubble", true)
+        set(value) = prefs.edit { putBoolean("floating_bubble", value) }
+
+    /** La bulle lit ses réponses à voix haute. */
+    var speakReplies: Boolean
+        get() = prefs.getBoolean("speak_replies", true)
+        set(value) = prefs.edit { putBoolean("speak_replies", value) }
+
+    /** Position de la bulle : bord de l'écran (gauche ou droite) et hauteur. */
+    var bubbleOnRight: Boolean
+        get() = prefs.getBoolean("bubble_right", true)
+        set(value) = prefs.edit { putBoolean("bubble_right", value) }
+
+    var bubbleY: Int
+        get() = prefs.getInt("bubble_y", -1)
+        set(value) = prefs.edit { putInt("bubble_y", value) }
+
     fun isAutoReplyContact(contact: String): Boolean =
         autoReply && autoReplyContacts.any { it.equals(contact, ignoreCase = true) }
 }
