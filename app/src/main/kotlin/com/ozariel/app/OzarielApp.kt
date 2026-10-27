@@ -83,11 +83,15 @@ class OzarielApp : Application() {
         manager.createNotificationChannel(
             NotificationChannel(CHANNEL_TASKS, "Tâches programmées", NotificationManager.IMPORTANCE_DEFAULT)
         )
+        manager.createNotificationChannel(
+            NotificationChannel(CHANNEL_WAKE, "Réveil par la voix", NotificationManager.IMPORTANCE_LOW)
+        )
     }
 
     companion object {
         const val CHANNEL_SUGGESTIONS = "suggestions"
         const val CHANNEL_TASKS = "tasks"
+        const val CHANNEL_WAKE = "wake_word"
 
         lateinit var instance: OzarielApp
             private set

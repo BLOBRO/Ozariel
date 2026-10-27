@@ -275,6 +275,29 @@ class FloatingAssistant(private val service: AccessibilityService) {
         handler.postDelayed(restoreMood, durationMs)
     }
 
+    /**
+     * On a dit « Ozariel » : le personnage se réveille et écoute la demande.
+     * Renvoie false si la bulle n'est pas affichée.
+     */
+    fun wakeUp(): Boolean {
+        if (bubble == null) return false
+        tts?.stop()
+        scheduleSleep()
+        face?.setMood(Mood.SURPRISED)
+        face?.bounce()
+        handler.postDelayed({
+            when {
+                listening -> Unit
+                AgentSession.busy.value -> { showCard(); WakeWordService.release() }
+                else -> {
+                    startListening()
+                    if (!listening) WakeWordService.release()
+                }
+            }
+        }, WAKE_DELAY_MS)
+        return true
+    }
+
     /** Une émotion choisie par l'agent (outil set_mood). */
     fun showMood(name: String): Boolean {
         val mood = when (name.lowercase()) {
@@ -490,6 +513,8 @@ class FloatingAssistant(private val service: AccessibilityService) {
         if (face == null) bubble?.background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.rgb(239, 68, 68)) }
         face?.setMood(Mood.LISTENING)
         showCard("Je t'écoute…")
+        // Le micro ne peut servir qu'à une écoute à la fois : on suspend celle du mot « Ozariel ».
+        WakeWordService.hold()
         recognizer.startListening(intent)
     }
 
@@ -500,6 +525,7 @@ class FloatingAssistant(private val service: AccessibilityService) {
         if (face == null) bubble?.background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.WHITE) }
         face?.level = 0f
         face?.setMood(baseMood())
+        WakeWordService.release()
     }
 
     private inner class Listener : RecognitionListener {
@@ -583,6 +609,7 @@ class FloatingAssistant(private val service: AccessibilityService) {
         private const val CARD_DELAY_MS = 10_000L
         private const val TAG = "Ozariel/Bulle"
         private const val SLEEP_DELAY_MS = 2 * 60_000L
+        private const val WAKE_DELAY_MS = 250L
 
         /** Vitesse de glisser (en dp par milliseconde) au-delà de laquelle il a le tournis. */
         private const val DIZZY_SPEED = 2.5f

@@ -7,6 +7,10 @@
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
     <!-- Pour parler à la bulle flottante. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Écoute du mot « Ozariel » en arrière-plan. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
         android:name=".OzarielApp"
@@ -51,6 +55,12 @@
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
+
+        <!-- Écoute le mot « Ozariel » (détection sur le téléphone). -->
+        <service
+            android:name=".services.WakeWordService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
 
         <receiver
             android:name=".services.ReplyActionReceiver"

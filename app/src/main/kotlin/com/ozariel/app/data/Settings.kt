@@ -69,6 +69,21 @@ class Settings(context: Context) {
         get() = prefs.getBoolean("animated_character", true)
         set(value) = prefs.edit { putBoolean("animated_character", value) }
 
+    /** Clé d'accès Picovoice (console.picovoice.ai), pour le mot d'éveil. */
+    var picovoiceKey: String
+        get() = prefs.getString("picovoice_key", "").orEmpty()
+        set(value) = prefs.edit { putString("picovoice_key", value.trim()) }
+
+    /** Ozariel se réveille quand on dit son nom. */
+    var wakeWord: Boolean
+        get() = prefs.getBoolean("wake_word", false)
+        set(value) = prefs.edit { putBoolean("wake_word", value) }
+
+    /** N'écouter le mot d'éveil que lorsque l'écran est allumé (économise la batterie). */
+    var wakeOnlyScreenOn: Boolean
+        get() = prefs.getBoolean("wake_screen_on", true)
+        set(value) = prefs.edit { putBoolean("wake_screen_on", value) }
+
     /** La bulle lit ses réponses à voix haute. */
     var speakReplies: Boolean
         get() = prefs.getBoolean("speak_replies", true)

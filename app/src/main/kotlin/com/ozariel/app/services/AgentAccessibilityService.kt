@@ -26,6 +26,7 @@ class AgentAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         instance = this
         floating = FloatingAssistant(this).also { it.refresh() }
+        WakeWordService.sync(this)
     }
 
     override fun onDestroy() {
