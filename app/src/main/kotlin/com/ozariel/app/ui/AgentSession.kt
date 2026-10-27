@@ -57,7 +57,7 @@ object AgentSession {
                 current.send(text) { event ->
                     val entry = when (event) {
                         is AgentEvent.Said -> ChatEntry.Assistant(event.text)
-                        is AgentEvent.ToolStarted -> ChatEntry.Action("${labelFor(event.tool)}…")
+                        is AgentEvent.ToolStarted -> if (event.tool == "set_mood") null else ChatEntry.Action("${labelFor(event.tool)}…")
                         is AgentEvent.ToolFinished -> if (event.result.isError) ChatEntry.Action(event.result.text, failed = true) else null
                         is AgentEvent.Failed -> ChatEntry.Action(event.message, failed = true)
                     }

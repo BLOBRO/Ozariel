@@ -64,6 +64,11 @@ class Settings(context: Context) {
         get() = prefs.getBoolean("floating_bubble", true)
         set(value) = prefs.edit { putBoolean("floating_bubble", value) }
 
+    /** La bulle prend la forme d'un petit personnage animé (sinon, simple icône). */
+    var animatedCharacter: Boolean
+        get() = prefs.getBoolean("animated_character", true)
+        set(value) = prefs.edit { putBoolean("animated_character", value) }
+
     /** La bulle lit ses réponses à voix haute. */
     var speakReplies: Boolean
         get() = prefs.getBoolean("speak_replies", true)

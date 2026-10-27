@@ -57,7 +57,7 @@ object AndroidTools {
     )
 
     fun all(context: Context): List<DeviceTool> = apps(context) + music(context) + screen() +
-        utilities(context) + tasks(context) + messages(context)
+        utilities(context) + tasks(context) + messages(context) + mood()
 
     private fun launch(context: Context, intent: Intent) {
         val service = AgentAccessibilityService.instance
@@ -247,6 +247,17 @@ object AndroidTools {
                     .putExtra(AlarmClock.EXTRA_SKIP_UI, true),
             )
             ToolResult.ok("Minuteur lancé.")
+        },
+    )
+
+    private fun mood() = listOf(
+        tool(
+            "set_mood",
+            "Montre une émotion sur le visage de la bulle Ozariel, quand c'est naturel (blague, bonne nouvelle, excuse…).",
+            string("mood", "Émotion", enum = listOf("happy", "sad", "surprised", "thinking", "love", "wink")),
+        ) { args ->
+            val shown = AgentAccessibilityService.instance?.floating?.showMood(args.string("mood")) == true
+            ToolResult.ok(if (shown) "Émotion affichée." else "La bulle n'est pas affichée, continue normalement.")
         },
     )
 

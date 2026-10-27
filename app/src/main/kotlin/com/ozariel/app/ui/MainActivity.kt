@@ -361,6 +361,7 @@ private fun SettingsTab(viewModel: AgentViewModel) {
     val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
     var bubble by remember { mutableStateOf(settings.floatingBubble) }
     var speak by remember { mutableStateOf(settings.speakReplies) }
+    var animated by remember { mutableStateOf(settings.animatedCharacter) }
     var micGranted by remember {
         mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
     }
@@ -460,6 +461,10 @@ private fun SettingsTab(viewModel: AgentViewModel) {
         SwitchRow("Afficher la bulle flottante", bubble) {
             bubble = it; settings.floatingBubble = it
             AgentAccessibilityService.instance?.floating?.refresh()
+        }
+        SwitchRow("Personnage animé (visage et émotions)", animated) {
+            animated = it; settings.animatedCharacter = it
+            AgentAccessibilityService.instance?.floating?.recreate()
         }
         SwitchRow("Lire les réponses à voix haute", speak) { speak = it; settings.speakReplies = it }
         PermissionRow("Micro (pour parler à la bulle)", micGranted) {

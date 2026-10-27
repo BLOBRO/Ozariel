@@ -11,10 +11,12 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import android.text.TextUtils
 import android.util.Log
 import android.view.Gravity
@@ -58,7 +60,12 @@ class FloatingAssistant(private val service: AccessibilityService) {
     private val dark = (service.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
 
     private var scope: CoroutineScope? = null
-    private var bubble: ImageView? = null
+    private var bubble: View? = null
+    /** Le personnage animé, ou null si l'utilisateur préfère la bulle simple. */
+    private var face: FaceView? = null
+    private val restoreMood = Runnable { face?.setMood(baseMood()) }
+    private var flashUntil = 0L
+    private val fallAsleep = Runnable { if (baseMood() == Mood.IDLE) face?.setMood(Mood.SLEEPY) }
     private lateinit var bubbleParams: WindowManager.LayoutParams
     private var card: LinearLayout? = null
     private lateinit var cardParams: WindowManager.LayoutParams
@@ -78,6 +85,12 @@ class FloatingAssistant(private val service: AccessibilityService) {
     /** Affiche ou retire la bulle selon les réglages. */
     fun refresh() {
         if (settings.floatingBubble) show() else hide()
+    }
+
+    /** Recrée la bulle, par exemple après un changement d'apparence dans les réglages. */
+    fun recreate() {
+        hide()
+        refresh()
     }
 
     fun destroy() {
@@ -106,21 +119,30 @@ class FloatingAssistant(private val service: AccessibilityService) {
         bubble?.let { runCatching { windows.removeView(it) } }
         card?.let { runCatching { windows.removeView(it) } }
         bubble = null
+        face = null
         card = null
+        handler.removeCallbacks(restoreMood)
+        handler.removeCallbacks(fallAsleep)
     }
 
     // --- La bulle ---
 
     private fun createBubble() {
-        val size = dp(56)
-        val view = ImageView(service).apply {
-            setImageResource(R.drawable.ic_launcher)
-            scaleType = ImageView.ScaleType.CENTER_CROP
-            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.WHITE) }
-            elevation = dp(6).toFloat()
-            clipToOutline = true
-            contentDescription = "Ozariel : appuie pour parler, appui long pour écrire"
+        val animated = settings.animatedCharacter
+        val size = if (animated) dp(76) else dp(56)
+        val view: View = if (animated) {
+            FaceView(service).also { face = it; it.effectsOnLeft = settings.bubbleOnRight }
+        } else {
+            ImageView(service).apply {
+                setImageResource(R.drawable.ic_launcher)
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.WHITE) }
+                elevation = dp(6).toFloat()
+                clipToOutline = true
+            }
         }
+        view.contentDescription = "Ozariel : appuie pour parler, appui long pour écrire"
+        scheduleSleep()
         val metrics = service.resources.displayMetrics
         bubbleParams = overlayParams(size, size).apply {
             x = if (settings.bubbleOnRight) metrics.widthPixels - size else 0
@@ -131,24 +153,36 @@ class FloatingAssistant(private val service: AccessibilityService) {
         bubble = view
     }
 
-    /** Appui, appui long et glisser-déposer de la bulle, qui se range ensuite contre le bord le plus proche. */
+    /**
+     * Appui, appui long et glisser-déposer de la bulle, qui se range ensuite contre le bord le plus proche.
+     * Le personnage réagit : il s'écrase sous le doigt, suit le mouvement des yeux, a le tournis
+     * si on le secoue, et rigole si on le tapote plusieurs fois.
+     */
     private inner class BubbleTouch : View.OnTouchListener {
         private val slop = ViewConfiguration.get(service).scaledTouchSlop
         private var startX = 0f
         private var startY = 0f
         private var originX = 0
         private var originY = 0
+        private var lastX = 0f
+        private var lastY = 0f
+        private var lastMove = 0L
+        private var speed = 0f
         private var dragging = false
         private var longPressed = false
+        private val taps = ArrayDeque<Long>()
         private val longPress = Runnable { longPressed = true; openTextInput() }
 
         override fun onTouch(view: View, event: MotionEvent): Boolean {
-            Log.d(TAG, "toucher bulle : ${event.actionMasked}")
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     startX = event.rawX; startY = event.rawY
+                    lastX = startX; lastY = startY; lastMove = event.eventTime; speed = 0f
                     originX = bubbleParams.x; originY = bubbleParams.y
                     dragging = false; longPressed = false
+                    face?.squish()
+                    scheduleSleep()
+                    if (face?.mood == Mood.SLEEPY) face?.setMood(baseMood())
                     handler.postDelayed(longPress, ViewConfiguration.getLongPressTimeout().toLong())
                 }
                 MotionEvent.ACTION_MOVE -> {
@@ -157,8 +191,15 @@ class FloatingAssistant(private val service: AccessibilityService) {
                     if (!dragging && (abs(dx) > slop || abs(dy) > slop)) {
                         dragging = true
                         handler.removeCallbacks(longPress)
+                        if (face?.mood == Mood.IDLE) face?.setMood(Mood.SURPRISED)
                     }
                     if (dragging) {
+                        val elapsed = (event.eventTime - lastMove).coerceAtLeast(1)
+                        val stepX = event.rawX - lastX
+                        val stepY = event.rawY - lastY
+                        speed = speed * 0.7f + 0.3f * (kotlin.math.hypot(stepX, stepY) / elapsed)
+                        face?.lookAt(stepX / dp(12), stepY / dp(12))
+                        lastX = event.rawX; lastY = event.rawY; lastMove = event.eventTime
                         bubbleParams.x = originX + dx.toInt()
                         bubbleParams.y = originY + dy.toInt()
                         windows.updateViewLayout(view, bubbleParams)
@@ -167,8 +208,24 @@ class FloatingAssistant(private val service: AccessibilityService) {
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     handler.removeCallbacks(longPress)
                     when {
-                        dragging -> snapToEdge(view)
-                        !longPressed && event.actionMasked == MotionEvent.ACTION_UP -> onBubbleTap()
+                        dragging -> {
+                            snapToEdge(view)
+                            face?.bounce()
+                            // Secoué trop fort : il a le tournis un instant.
+                            if (speed > DIZZY_SPEED * density) flashMood(Mood.DIZZY, 1500) else face?.setMood(baseMood())
+                        }
+                        !longPressed && event.actionMasked == MotionEvent.ACTION_UP -> {
+                            val now = event.eventTime
+                            taps.addLast(now)
+                            while (taps.isNotEmpty() && now - taps.first() > 1200) taps.removeFirst()
+                            if (taps.size >= 3) {
+                                taps.clear()
+                                stopListening()
+                                flashMood(Mood.GIGGLE, 1500)
+                            } else {
+                                onBubbleTap()
+                            }
+                        }
                     }
                 }
             }
@@ -183,6 +240,7 @@ class FloatingAssistant(private val service: AccessibilityService) {
         bubbleParams.y = bubbleParams.y.coerceAtLeast(0)
         windows.updateViewLayout(view, bubbleParams)
         settings.bubbleOnRight = right
+        face?.effectsOnLeft = right
         settings.bubbleY = bubbleParams.y
     }
 
@@ -193,6 +251,49 @@ class FloatingAssistant(private val service: AccessibilityService) {
             AgentSession.busy.value -> showCard()
             else -> startListening()
         }
+    }
+
+    // --- Les humeurs du personnage ---
+
+    /** L'humeur de fond, selon ce que fait Ozariel. */
+    private fun baseMood(): Mood = when {
+        listening -> Mood.LISTENING
+        AgentSession.confirmation.value != null -> Mood.SURPRISED
+        AgentSession.busy.value -> when (val last = AgentSession.chat.value.lastOrNull()) {
+            is ChatEntry.Action -> if (last.failed) Mood.SAD else Mood.WORKING
+            else -> Mood.THINKING
+        }
+        else -> Mood.IDLE
+    }
+
+    /** Montre une émotion quelques instants, puis revient à l'humeur de fond. */
+    private fun flashMood(mood: Mood, durationMs: Long) {
+        val face = face ?: return
+        handler.removeCallbacks(restoreMood)
+        flashUntil = SystemClock.uptimeMillis() + durationMs
+        face.setMood(mood)
+        handler.postDelayed(restoreMood, durationMs)
+    }
+
+    /** Une émotion choisie par l'agent (outil set_mood). */
+    fun showMood(name: String): Boolean {
+        val mood = when (name.lowercase()) {
+            "happy" -> Mood.HAPPY
+            "sad" -> Mood.SAD
+            "surprised" -> Mood.SURPRISED
+            "thinking" -> Mood.THINKING
+            "love" -> Mood.LOVE
+            "wink" -> Mood.WINK
+            else -> return false
+        }
+        handler.post { flashMood(mood, 3000) }
+        return true
+    }
+
+    /** Sans rien à faire pendant un moment, le personnage s'endort. */
+    private fun scheduleSleep() {
+        handler.removeCallbacks(fallAsleep)
+        handler.postDelayed(fallAsleep, SLEEP_DELAY_MS)
     }
 
     // --- La carte ---
@@ -281,7 +382,9 @@ class FloatingAssistant(private val service: AccessibilityService) {
         // Pendant le travail, la bulle et la carte laissent passer les touchers de l'agent,
         // sauf quand il faut répondre à une confirmation.
         setTouchable(!busy || confirming)
-        bubble?.alpha = if (busy) 0.6f else 1f
+        bubble?.alpha = if (busy && face == null) 0.6f else 1f
+        if (busy) scheduleSleep()
+        if (SystemClock.uptimeMillis() >= flashUntil) face?.setMood(baseMood())
     }
 
     private fun setTouchable(touchable: Boolean) {
@@ -350,6 +453,8 @@ class FloatingAssistant(private val service: AccessibilityService) {
         showCard("« $text »\n\nJe réfléchis…")
         val accepted = AgentSession.send(service, text) { answer ->
             val reply = answer.ifBlank { "C'est fait." }
+            val failed = (AgentSession.chat.value.lastOrNull() as? ChatEntry.Action)?.failed == true
+            flashMood(if (failed) Mood.SAD else Mood.HAPPY, 2500)
             showCard(reply)
             speak(reply)
             handler.postDelayed(hideCard, CARD_DELAY_MS)
@@ -382,7 +487,8 @@ class FloatingAssistant(private val service: AccessibilityService) {
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE, "fr-FR")
             .putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
         listening = true
-        bubble?.background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.rgb(239, 68, 68)) }
+        if (face == null) bubble?.background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.rgb(239, 68, 68)) }
+        face?.setMood(Mood.LISTENING)
         showCard("Je t'écoute…")
         recognizer.startListening(intent)
     }
@@ -391,7 +497,9 @@ class FloatingAssistant(private val service: AccessibilityService) {
         if (!listening) return
         listening = false
         recognizer?.cancel()
-        bubble?.background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.WHITE) }
+        if (face == null) bubble?.background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.WHITE) }
+        face?.level = 0f
+        face?.setMood(baseMood())
     }
 
     private inner class Listener : RecognitionListener {
@@ -407,6 +515,8 @@ class FloatingAssistant(private val service: AccessibilityService) {
         }
 
         override fun onError(error: Int) {
+            // Écoute annulée par un nouvel appui : ce n'est pas une erreur.
+            if (!listening) return
             stopListening()
             showCard(
                 when (error) {
@@ -421,7 +531,9 @@ class FloatingAssistant(private val service: AccessibilityService) {
 
         override fun onReadyForSpeech(params: Bundle?) = Unit
         override fun onBeginningOfSpeech() = Unit
-        override fun onRmsChanged(rmsdB: Float) = Unit
+        override fun onRmsChanged(rmsdB: Float) {
+            face?.level = (rmsdB + 2f) / 12f
+        }
         override fun onBufferReceived(buffer: ByteArray?) = Unit
         override fun onEndOfSpeech() = Unit
         override fun onEvent(eventType: Int, params: Bundle?) = Unit
@@ -439,10 +551,20 @@ class FloatingAssistant(private val service: AccessibilityService) {
                 ttsReady = result == TextToSpeech.SUCCESS
                 if (ttsReady) {
                     tts?.language = Locale.FRANCE
+                    tts?.setOnUtteranceProgressListener(Speaking())
                     tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "ozariel")
                 }
             }
         }
+    }
+
+    /** Fait bouger la bouche du personnage pendant qu'il parle. */
+    private inner class Speaking : UtteranceProgressListener() {
+        override fun onStart(utteranceId: String?) { handler.post { face?.talking = true } }
+        override fun onDone(utteranceId: String?) { handler.post { face?.talking = false } }
+        @Deprecated("Remplacée par onError(String, Int)")
+        override fun onError(utteranceId: String?) { handler.post { face?.talking = false } }
+        override fun onStop(utteranceId: String?, interrupted: Boolean) { handler.post { face?.talking = false } }
     }
 
     // --- Outils ---
@@ -460,5 +582,9 @@ class FloatingAssistant(private val service: AccessibilityService) {
     companion object {
         private const val CARD_DELAY_MS = 10_000L
         private const val TAG = "Ozariel/Bulle"
+        private const val SLEEP_DELAY_MS = 2 * 60_000L
+
+        /** Vitesse de glisser (en dp par milliseconde) au-delà de laquelle il a le tournis. */
+        private const val DIZZY_SPEED = 2.5f
     }
 }
